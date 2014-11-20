@@ -128,11 +128,19 @@ package org.jfree.chart;
 
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.Graphics2D;
+import java.awt.Paint;
+import java.awt.Shape;
+import java.awt.geom.Rectangle2D;
 import java.text.DateFormat;
 import java.text.NumberFormat;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Random;
 
+import org.apache.commons.math3.distribution.BetaDistribution;
 import org.jfree.chart.axis.CategoryAxis;
 import org.jfree.chart.axis.DateAxis;
 import org.jfree.chart.axis.NumberAxis;
@@ -171,9 +179,11 @@ import org.jfree.chart.renderer.category.AreaRenderer;
 import org.jfree.chart.renderer.category.BarRenderer;
 import org.jfree.chart.renderer.category.BoxAndWhiskerRenderer;
 import org.jfree.chart.renderer.category.CategoryItemRenderer;
+import org.jfree.chart.renderer.category.CategoryItemRendererState;
 import org.jfree.chart.renderer.category.GanttRenderer;
 import org.jfree.chart.renderer.category.GradientBarPainter;
 import org.jfree.chart.renderer.category.LineAndShapeRenderer;
+import org.jfree.chart.renderer.category.ScatterRenderer;
 import org.jfree.chart.renderer.category.StackedAreaRenderer;
 import org.jfree.chart.renderer.category.StackedBarRenderer;
 import org.jfree.chart.renderer.category.StandardBarPainter;
@@ -195,26 +205,221 @@ import org.jfree.chart.renderer.xy.XYStepAreaRenderer;
 import org.jfree.chart.renderer.xy.XYStepRenderer;
 import org.jfree.chart.title.TextTitle;
 import org.jfree.chart.util.ParamChecks;
+import org.jfree.data.Range;
 import org.jfree.data.category.CategoryDataset;
 import org.jfree.data.category.IntervalCategoryDataset;
+import org.jfree.data.general.DatasetUtilities;
 import org.jfree.data.general.DefaultPieDataset;
 import org.jfree.data.general.PieDataset;
 import org.jfree.data.general.WaferMapDataset;
 import org.jfree.data.statistics.BoxAndWhiskerCategoryDataset;
 import org.jfree.data.statistics.BoxAndWhiskerXYDataset;
+import org.jfree.data.statistics.DefaultMultiValueCategoryDataset;
+import org.jfree.data.statistics.MultiValueCategoryDataset;
 import org.jfree.data.xy.IntervalXYDataset;
 import org.jfree.data.xy.OHLCDataset;
 import org.jfree.data.xy.TableXYDataset;
 import org.jfree.data.xy.WindDataset;
 import org.jfree.data.xy.XYDataset;
 import org.jfree.data.xy.XYZDataset;
+import org.jfree.util.ShapeUtilities;
+
+import util.ChartUtils.SR;
+
 
 /**
  * A collection of utility methods for creating some standard charts with
  * JFreeChart.
  */
 public abstract class ChartFactory {
+	
+static class SR extends ScatterRenderer{
+		
+		public Range findRangeBounds(CategoryDataset dataset) {
+			return DatasetUtilities.findRangeBounds(dataset);
+		}
+		
+		public void drawItem(Graphics2D g2, CategoryItemRendererState state,
+	            Rectangle2D dataArea, CategoryPlot plot, CategoryAxis domainAxis,
+	            ValueAxis rangeAxis, CategoryDataset dataset, int row, int column,
+	            int pass) {
+			
+			 // do nothing if item is not visible
+	        if (!getItemVisible(row, column)) {
+	            return;
+	        }
+	        int visibleRow = state.getVisibleSeriesIndex(row);
+	        if (visibleRow < 0) {
+	            return;
+	        }
+	        int visibleRowCount = state.getVisibleSeriesCount();
 
+	        PlotOrientation orientation = plot.getOrientation();
+
+	        MultiValueCategoryDataset d = (MultiValueCategoryDataset) dataset;
+	        List values = d.getValues(row, column);
+	        if (values == null) {
+	            return;
+	        }
+	        int valueCount = values.size();
+	        Random r = new Random(0);
+	        BetaDistribution bd = new BetaDistribution(2, 2);
+//	        g2.drawRect((int)domainAxis.getCategorySeriesMiddle(column, 
+//                    dataset.getColumnCount(), visibleRow, visibleRowCount,
+//                    this.getItemMargin(), dataArea, plot.getDomainAxisEdge())-5, 
+//                    (int) rangeAxis.valueToJava2D(0, dataArea,
+//                    plot.getRangeAxisEdge())-((column+1)*30), 
+//                    15, 
+//	                        (column+1)*30);
+	        for (int i = 0; i < valueCount; i++) {
+	            // current data point...
+	            double x1;
+	            if (this.getUseSeriesOffset()) {
+	                x1 = domainAxis.getCategorySeriesMiddle(column, 
+	                        dataset.getColumnCount(), visibleRow, visibleRowCount,
+	                        this.getItemMargin(), dataArea, plot.getDomainAxisEdge());
+	            }
+	            else {
+	                x1 = domainAxis.getCategoryMiddle(column, getColumnCount(),
+	                        dataArea, plot.getDomainAxisEdge());
+	            }
+	            Number n = (Number) values.get(i);
+	            double value = n.doubleValue();
+	            double y1 = rangeAxis.valueToJava2D(value, dataArea,
+	                    plot.getRangeAxisEdge());
+
+	            double start = domainAxis.getCategoryStart(column, dataset.getColumnCount(), dataArea, plot.getDomainAxisEdge());
+	            double end = domainAxis.getCategoryEnd(column, dataset.getColumnCount(), dataArea, plot.getDomainAxisEdge());
+	            double w = end-start;
+	            x1 += (bd.inverseCumulativeProbability(r.nextDouble())-.5)*w/dataset.getColumnCount();
+//	            System.out.println(Util.list(start,x1,end,y1));
+	            Shape shape = getItemShape(row, column);
+	            if (orientation == PlotOrientation.HORIZONTAL) {
+	                shape = ShapeUtilities.createTranslatedShape(shape, y1, x1);
+	            }
+	            else if (orientation == PlotOrientation.VERTICAL) {
+	                shape = ShapeUtilities.createTranslatedShape(shape, x1, y1);
+	            }
+	            if (getItemShapeFilled(row, column)) {
+	                if (this.getUseFillPaint()) {
+	                    g2.setPaint(getItemFillPaint(row, column));
+	                }
+	                else {
+	                    g2.setPaint(getItemPaint(row, column));
+	                }
+	                g2.fill(shape);
+	            }
+	            if (this.getDrawOutlines()) {
+	                if (this.getUseOutlinePaint()) {
+	                    g2.setPaint(getItemOutlinePaint(row, column));
+	                }
+	                else {
+	                    g2.setPaint(getItemPaint(row, column));
+	                }
+	                g2.setStroke(getItemOutlineStroke(row, column));
+	                g2.draw(shape);
+	            }
+	        }
+
+		}
+	}
+
+
+	
+public static <T extends Number> CategoryDataset createMultiValueCategoryDataset(Map<String, List<T>> dataset) {
+	DefaultMultiValueCategoryDataset data = new DefaultMultiValueCategoryDataset();
+	List<String> categoryLabels = new ArrayList<String>(dataset.size());
+	for(String category : dataset.keySet()){
+		categoryLabels.add(category);
+	}
+
+	for(String category : categoryLabels){
+		List<T> categoryData = dataset.get(category);
+		data.add(categoryData, "", category);
+	}
+
+	return data;
+}
+
+public static <T extends Number> JFreeChart createScatterCategoryChart(Map<String,List<T>> dataset, String title, String xAxis, String yAxis, boolean showLegend){
+		// Make the PDB series and add it to the predicted strand locations
+		CategoryDataset data = createMultiValueCategoryDataset(dataset);
+		
+		Range rangeBounds = DatasetUtilities.findRangeBounds(data);
+		NumberAxis numberAxis = new NumberAxis(yAxis);
+		numberAxis.setRangeWithMargins(rangeBounds);
+
+		CategoryPlot plot = new CategoryPlot(data, new CategoryAxis(xAxis), numberAxis, new SR());
+
+		JFreeChart chart = new JFreeChart(title, plot);
+
+		if(!showLegend)
+			chart.removeLegend();
+		setCategoryStandardTooltips(chart);
+
+		((CategoryPlot) chart.getPlot()).setDomainGridlinesVisible(false);
+		((CategoryPlot) chart.getPlot()).setRangeGridlinesVisible(false);;
+
+		chart.setBackgroundPaint(Color.white);
+		chart.getPlot().setBackgroundPaint(Color.white);
+		return chart;
+	}
+
+public static <T extends Number> CategoryDataset create2DMultiValueCategoryDataset(Map<String[], List<T>> dataset) {
+	DefaultMultiValueCategoryDataset data = new DefaultMultiValueCategoryDataset();
+	List<String[]> categoryLabels = new ArrayList<String[]>(dataset.size());
+	for(String[] category : dataset.keySet()){
+		categoryLabels.add(category);
+	}
+
+	for(String[] category : categoryLabels){
+		List<T> categoryData = dataset.get(category);
+		data.add(categoryData, category[0], category[1]);
+	}
+
+	return data;
+}
+
+public static void setXYStandardTooltips(JFreeChart chart, Map<String, ? extends Paint> colors){
+	XYDataset data = chart.getXYPlot().getDataset();
+	XYItemRenderer r = ((XYPlot)chart.getPlot()).getRenderer();
+	for(int i=0; i<data.getSeriesCount(); i++){
+		r.setSeriesToolTipGenerator(i, new StandardXYToolTipGenerator());	
+	}
+}
+
+public static void setCategoryStandardTooltips(JFreeChart chart){
+	CategoryDataset data = chart.getCategoryPlot().getDataset();
+	CategoryItemRenderer r = ((CategoryPlot)chart.getPlot()).getRenderer();
+	for(int i=0; i<data.getRowCount(); i++){
+		r.setSeriesToolTipGenerator(i, new StandardCategoryToolTipGenerator());	
+	}
+}
+
+	public static <T extends Number> JFreeChart create2DScatterCategoryChart(Map<String[],List<T>> dataset, String title, String xAxis, String yAxis, boolean showLegend){
+		// Make the PDB series and add it to the predicted strand locations
+		CategoryDataset data = create2DMultiValueCategoryDataset(dataset);
+
+		Range rangeBounds = DatasetUtilities.findRangeBounds(data);
+		NumberAxis numberAxis = new NumberAxis(yAxis);
+		numberAxis.setRangeWithMargins(rangeBounds);
+
+		CategoryPlot plot = new CategoryPlot(data, new CategoryAxis(xAxis), numberAxis, new SR());
+
+		JFreeChart chart = new JFreeChart(title, plot);
+
+		if(!showLegend)
+			chart.removeLegend();
+		setCategoryStandardTooltips(chart);
+
+		((CategoryPlot) chart.getPlot()).setDomainGridlinesVisible(false);
+		((CategoryPlot) chart.getPlot()).setRangeGridlinesVisible(false);;
+
+		chart.setBackgroundPaint(Color.white);
+		chart.getPlot().setBackgroundPaint(Color.white);
+		return chart;
+	}
+	
     /** The chart theme. */
     private static ChartTheme currentTheme = new StandardChartTheme("JFree");
 
